@@ -406,7 +406,7 @@ var database = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseN
 
 var container = await database.Database.CreateContainerIfNotExistsAsync(
     id: cosmosContainerName,
-    partitionKeyPath: "/region/code"
+    partitionKeyPath: "/id"
 );
 
 var jsonArray = JsonNode.Parse(json)?.AsArray();
