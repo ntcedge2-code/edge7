@@ -26,9 +26,11 @@ using var reader = new StreamReader(filePath);
 using var csv = new CsvReader(reader, config);
 
 var records = csv.GetRecords<AmateurRecord>().ToList();
-
 Console.WriteLine($"Total records extracted: {records.Count}");
-
+var folderPath = Path.GetDirectoryName(filePath) ?? "";
+var folderName = string.IsNullOrWhiteSpace(folderPath)
+    ? "root"
+    : new DirectoryInfo(folderPath).Name;
 var applications = records.Select(item => new
 {
     soaNumber = "",
@@ -72,7 +74,7 @@ var applications = records.Select(item => new
             barangay = "",
             city = item.TOWNCITY,
             province = item.PROVINCE,
-            region = "",
+            region = folderName,
             zipCode = ""
         },
 
@@ -183,17 +185,15 @@ var applications = records.Select(item => new
     serviceName = "licenses in the amateur service",
     applicationProcess = "",
     applicationTypeLabel = GetApplicationTypeLabel(item.ApplicationType).ToLower(),
-
     region = new
     {
         _id = (string?)null,
         address = "",
         supportEmail = "edge@gov.ph",
-        label = "",
-        value = "",
-        code = ""
+        label = "Region " + folderName,
+        value = folderName,
+        code = folderName
     },
-
     status = "Approved",
     paymentStatus = "Paid",
     paymentMethod = "cash",
@@ -365,10 +365,8 @@ var json = JsonSerializer.Serialize(applications, new JsonSerializerOptions
 {
     WriteIndented = true
 });
-var folderPath = Path.GetDirectoryName(filePath) ?? "";
-var folderName = string.IsNullOrWhiteSpace(folderPath)
-    ? "root"
-    : new DirectoryInfo(folderPath).Name;
+
+
 
 Directory.CreateDirectory("output");
 
@@ -409,49 +407,17 @@ var container = await database.Database.CreateContainerIfNotExistsAsync(
     partitionKeyPath: "/id"
 );
 
-var jsonArray = JsonNode.Parse(json)?.AsArray();
-
-if (jsonArray == null)
+foreach (var app in applications)
 {
-    Console.WriteLine("No JSON records found to save.");
-    return;
-}
-
-foreach (var record in jsonArray)
-{
-    if (record == null)
-        continue;
-
-    var id = record["id"]?.ToString();
-
-    if (string.IsNullOrWhiteSpace(id))
-    {
-        id = Guid.NewGuid().ToString();
-        record["id"] = id;
-        record["_id"] = id;
-    }
-
-    var regionCode = record["region"]?["code"]?.ToString();
-
-    if (string.IsNullOrWhiteSpace(regionCode))
-    {
-        regionCode = folderName;
-        record["region"]!["code"] = regionCode;
-        record["region"]!["value"] = regionCode;
-        record["region"]!["label"] = $"Region {regionCode}";
-    }
-
-    await container.Container.UpsertItemAsync(
-        record,
-        new PartitionKey(regionCode)
+    await container.UpsertItemAsync(
+        app,
+        new PartitionKey(app.id)
     );
 
-    Console.WriteLine($"Saved to Cosmos DB: {id} | Region: {regionCode}");
+    Console.WriteLine($"Saved to Cosmos DB Applications container: {app.id}");
 }
 
-Console.WriteLine($"Saved {jsonArray.Count} records to Azure Cosmos DB.");
-
-
+Console.WriteLine($"Saved {applications.Count} records to Cosmos DB.");
 static string GetApplicationTypeLabel(string? value)
 {
     if (string.IsNullOrWhiteSpace(value))
