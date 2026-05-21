@@ -3,7 +3,6 @@ using CsvHelper.Configuration;
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Azure.Cosmos;
-using System.Text.Json.Nodes;
 var filePath = args.Length > 0
     ? args[0]
     : "AMATEUR Query.csv";
@@ -400,11 +399,16 @@ if (string.IsNullOrWhiteSpace(cosmosConnectionString) ||
 
 using var cosmosClient = new CosmosClient(cosmosConnectionString);
 
-var database = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseName);
+var databaseResponse = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseName);
 
-var container = await database.Database.CreateContainerIfNotExistsAsync(
+var containerResponse = await databaseResponse.Database.CreateContainerIfNotExistsAsync(
     id: cosmosContainerName,
     partitionKeyPath: "/id"
+);
+
+var container = cosmosClient.GetContainer(
+    cosmosDatabaseName,
+    cosmosContainerName
 );
 
 foreach (var app in applications)
