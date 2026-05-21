@@ -4,6 +4,24 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'I/**/*.csv'
+      - 'II/**/*.csv'
+      - 'III/**/*.csv'
+      - 'IV/**/*.csv'
+      - 'V/**/*.csv'
+      - 'VI/**/*.csv'
+      - 'VII/**/*.csv'
+      - 'VIII/**/*.csv'
+      - 'IX/**/*.csv'
+      - 'X/**/*.csv'
+      - 'XI/**/*.csv'
+      - 'XII/**/*.csv'
+      - 'XIII/**/*.csv'
+      - 'XIV/**/*.csv'
+      - 'CsvExtractor/**'
+      - '.github/workflows/extract-csv.yml'
+
   workflow_dispatch:
 
 jobs:
@@ -13,6 +31,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -25,11 +45,30 @@ jobs:
       - name: Build project
         run: dotnet build ./CsvExtractor/CsvExtractor.csproj --configuration Release --no-restore
 
-      - name: Run CSV extraction
-        run: dotnet run --project ./CsvExtractor/CsvExtractor.csproj --configuration Release -- "AMATEUR Query.csv"
+      - name: Find changed CSV files
+        id: changed-files
+        run: |
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          git diff --name-only HEAD~1 HEAD | grep -E '^(I|II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII|XIV)/.*\.csv$' || true
+          echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Upload mapped JSON
+      - name: Run extraction per CSV file
+        run: |
+          echo "${{ steps.changed-files.outputs.files }}" | while read file; do
+            if [ -n "$file" ]; then
+              folder=$(dirname "$file")
+              echo "Processing folder: $folder"
+              echo "Processing file: $file"
+
+              dotnet run \
+                --project ./CsvExtractor/CsvExtractor.csproj \
+                --configuration Release \
+                -- "$file"
+            fi
+          done
+
+      - name: Upload JSON outputs
         uses: actions/upload-artifact@v4
         with:
           name: amateur-applications-json
-          path: amateur-applications.json
+          path: "*.json"
