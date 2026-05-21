@@ -364,11 +364,26 @@ var json = JsonSerializer.Serialize(applications, new JsonSerializerOptions
 {
     WriteIndented = true
 });
+var folderPath = Path.GetDirectoryName(filePath) ?? "";
+var folderName = string.IsNullOrWhiteSpace(folderPath)
+    ? "root"
+    : new DirectoryInfo(folderPath).Name;
 
-File.WriteAllText("amateur-applications.json", json);
+Directory.CreateDirectory("output");
 
-Console.WriteLine("JSON created: amateur-applications.json");
+var safeFileName = Path.GetFileNameWithoutExtension(filePath)
+    .Replace(" ", "-")
+    .Replace("/", "-")
+    .Replace("\\", "-");
 
+var outputFileName = Path.Combine(
+    "output",
+    $"amateur-applications-{folderName}-{safeFileName}.json"
+);
+
+File.WriteAllText(outputFileName, json);
+
+Console.WriteLine($"JSON created: {outputFileName}");
 static string GetApplicationTypeLabel(string? value)
 {
     if (string.IsNullOrWhiteSpace(value))
