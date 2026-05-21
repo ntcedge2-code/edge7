@@ -374,7 +374,9 @@ Directory.CreateDirectory("output");
 var safeFileName = Path.GetFileNameWithoutExtension(filePath)
     .Replace(" ", "-")
     .Replace("/", "-")
-    .Replace("\\", "-");
+    .Replace("\\", "-")
+    .Replace("(", "")
+    .Replace(")", "");
 
 var outputFileName = Path.Combine(
     "output",
