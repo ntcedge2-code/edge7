@@ -31,8 +31,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -45,19 +43,23 @@ jobs:
       - name: Build project
         run: dotnet build ./CsvExtractor/CsvExtractor.csproj --configuration Release --no-restore
 
-      - name: Find changed CSV files
-        id: changed-files
+      - name: Create output folder
+        run: mkdir -p output
+
+      - name: Find all CSV files in region folders
+        id: csv-files
         run: |
+          echo "CSV files found:"
+          find I II III IV V VI VII VIII IX X XI XII XIII XIV -type f -name "*.csv" 2>/dev/null || true
+
           echo "files<<EOF" >> $GITHUB_OUTPUT
-          git diff --name-only HEAD~1 HEAD | grep -E '^(I|II|III|IV|V|VI|VII|VIII|IX|X|XI|XII|XIII|XIV)/.*\.csv$' || true
+          find I II III IV V VI VII VIII IX X XI XII XIII XIV -type f -name "*.csv" 2>/dev/null || true
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Run extraction per CSV file
         run: |
-          echo "${{ steps.changed-files.outputs.files }}" | while read file; do
+          echo "${{ steps.csv-files.outputs.files }}" | while read file; do
             if [ -n "$file" ]; then
-              folder=$(dirname "$file")
-              echo "Processing folder: $folder"
               echo "Processing file: $file"
 
               dotnet run \
@@ -67,8 +69,18 @@ jobs:
             fi
           done
 
+      - name: List generated files
+        run: |
+          echo "Root files:"
+          ls -la
+
+          echo "Output files:"
+          ls -la output || true
+
       - name: Upload JSON outputs
         uses: actions/upload-artifact@v4
         with:
           name: amateur-applications-json
-          path: "*.json"
+          path: |
+            *.json
+            output/*.json
