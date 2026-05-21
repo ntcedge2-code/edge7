@@ -46,19 +46,21 @@ jobs:
       - name: Create output folder
         run: mkdir -p output
 
-      - name: Find all CSV files in region folders
-        id: csv-files
+      - name: Run extraction for all CSV files
         run: |
+          echo "Searching CSV files..."
+
+          find I II III IV V VI VII VIII IX X XI XII XIII XIV -type f -name "*.csv" 2>/dev/null > csv_files.txt || true
+
           echo "CSV files found:"
-          find I II III IV V VI VII VIII IX X XI XII XIII XIV -type f -name "*.csv" 2>/dev/null || true
+          cat csv_files.txt
 
-          echo "files<<EOF" >> $GITHUB_OUTPUT
-          find I II III IV V VI VII VIII IX X XI XII XIII XIV -type f -name "*.csv" 2>/dev/null || true
-          echo "EOF" >> $GITHUB_OUTPUT
+          if [ ! -s csv_files.txt ]; then
+            echo "No CSV files found."
+            exit 0
+          fi
 
-      - name: Run extraction per CSV file
-        run: |
-          echo "${{ steps.csv-files.outputs.files }}" | while read file; do
+          while IFS= read -r file; do
             if [ -n "$file" ]; then
               echo "Processing file: $file"
 
@@ -67,20 +69,19 @@ jobs:
                 --configuration Release \
                 -- "$file"
             fi
-          done
+          done < csv_files.txt
 
       - name: List generated files
         run: |
-          echo "Root files:"
-          ls -la
+          echo "All generated files:"
+          find . -type f
 
-          echo "Output files:"
+          echo "Output folder:"
           ls -la output || true
 
       - name: Upload JSON outputs
         uses: actions/upload-artifact@v4
         with:
           name: amateur-applications-json
-          path: |
-            *.json
-            output/*.json
+          path: output/*.json
+          if-no-files-found: warn
