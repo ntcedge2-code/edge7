@@ -29,5 +29,33 @@ Console.WriteLine($"Total records extracted: {records.Count}");
 
 foreach (var item in records)
 {
-    Console.WriteLine($"{item.OWNER} | {item.CALLSIGN} | {item.LIC_PER_NO} | {item.PROVINCE}");
+    var line = string.Join(" | ", new[]
+    {
+        item.OWNER,
+        item.CLASS,
+        item.NATURE,
+        item.ApplicationType,
+        item.SERIAL,
+        item.LIC_PER_NO,
+        item.MAKE,
+        item.TYPE,
+        item.CALLSIGN,
+        item.ORNumber,
+        item.TOWNCITY,
+        item.PROVINCE,
+        item.STNLOC,
+        item.DATEPAID,
+        item.EFFDATE,
+        item.EXPDATE,
+        item.DATEISS,
+        item.AMOUNT,
+        item.ContactNumber,
+        item.LONGITUDE,
+        item.LATITUDE,
+        item.ClassOfStation,
+        item.PowerKw,
+        item.FrequencyRange
+    });
+
+    Console.WriteLine(line);
 }
