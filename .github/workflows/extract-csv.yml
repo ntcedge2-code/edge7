@@ -27,3 +27,9 @@ jobs:
 
       - name: Run CSV extraction
         run: dotnet run --project ./CsvExtractor/CsvExtractor.csproj --configuration Release -- "AMATEUR Query.csv"
+
+      - name: Upload mapped JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: amateur-applications-json
+          path: amateur-applications.json
