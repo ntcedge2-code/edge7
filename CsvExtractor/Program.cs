@@ -2,7 +2,8 @@ using CsvHelper;
 using CsvHelper.Configuration;
 using System.Globalization;
 using System.Text.Json;
-
+using Microsoft.Azure.Cosmos;
+using System.Text.Json.Nodes;
 var filePath = args.Length > 0
     ? args[0]
     : "AMATEUR Query.csv";
@@ -386,6 +387,71 @@ var outputFileName = Path.Combine(
 File.WriteAllText(outputFileName, json);
 
 Console.WriteLine($"JSON created: {outputFileName}");
+
+var cosmosConnectionString = Environment.GetEnvironmentVariable("COSMOS_CONNECTION_STRING");
+var cosmosDatabaseName = Environment.GetEnvironmentVariable("COSMOS_DATABASE_NAME");
+var cosmosContainerName = Environment.GetEnvironmentVariable("COSMOS_CONTAINER_NAME");
+
+if (string.IsNullOrWhiteSpace(cosmosConnectionString) ||
+    string.IsNullOrWhiteSpace(cosmosDatabaseName) ||
+    string.IsNullOrWhiteSpace(cosmosContainerName))
+{
+    Console.WriteLine("Cosmos DB environment variables are missing. JSON was created but not uploaded to Cosmos DB.");
+    return;
+}
+
+using var cosmosClient = new CosmosClient(cosmosConnectionString);
+
+var database = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseName);
+
+var container = await database.Database.CreateContainerIfNotExistsAsync(
+    id: cosmosContainerName,
+    partitionKeyPath: "/region/code"
+);
+
+var jsonArray = JsonNode.Parse(json)?.AsArray();
+
+if (jsonArray == null)
+{
+    Console.WriteLine("No JSON records found to save.");
+    return;
+}
+
+foreach (var record in jsonArray)
+{
+    if (record == null)
+        continue;
+
+    var id = record["id"]?.ToString();
+
+    if (string.IsNullOrWhiteSpace(id))
+    {
+        id = Guid.NewGuid().ToString();
+        record["id"] = id;
+        record["_id"] = id;
+    }
+
+    var regionCode = record["region"]?["code"]?.ToString();
+
+    if (string.IsNullOrWhiteSpace(regionCode))
+    {
+        regionCode = folderName;
+        record["region"]!["code"] = regionCode;
+        record["region"]!["value"] = regionCode;
+        record["region"]!["label"] = $"Region {regionCode}";
+    }
+
+    await container.Container.UpsertItemAsync(
+        record,
+        new PartitionKey(regionCode)
+    );
+
+    Console.WriteLine($"Saved to Cosmos DB: {id} | Region: {regionCode}");
+}
+
+Console.WriteLine($"Saved {jsonArray.Count} records to Azure Cosmos DB.");
+
+
 static string GetApplicationTypeLabel(string? value)
 {
     if (string.IsNullOrWhiteSpace(value))
