@@ -46,7 +46,11 @@ jobs:
       - name: Create output folder
         run: mkdir -p output
 
-      - name: Run extraction for all CSV files
+      - name: Run extraction and save to Cosmos DB
+        env:
+          COSMOS_CONNECTION_STRING: ${{ secrets.COSMOS_CONNECTION_STRING }}
+          COSMOS_DATABASE_NAME: ${{ secrets.COSMOS_DATABASE_NAME }}
+          COSMOS_CONTAINER_NAME: ${{ secrets.COSMOS_CONTAINER_NAME }}
         run: |
           echo "Searching CSV files..."
 
@@ -73,10 +77,7 @@ jobs:
 
       - name: List generated files
         run: |
-          echo "All generated files:"
           find . -type f
-
-          echo "Output folder:"
           ls -la output || true
 
       - name: Upload JSON outputs
