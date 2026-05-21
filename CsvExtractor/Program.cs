@@ -183,7 +183,7 @@ foreach (var item in records)
                     "Class D"
                 },
                 formCode = "ntc1-03-AT-RSL",
-                requirements = Array.Empty<object>(),
+                requirements = GetRequirements(item.ApplicationType),
                 serviceCode = "AT-RSL",
                 sequenceCode = "AT",
                 element = $"Class {item.CLASS}"
@@ -471,7 +471,121 @@ foreach (var item in applicationItems)
 }
 
 Console.WriteLine($"Saved {applicationItems.Count} records to Cosmos DB.");
+static object[] GetRequirements(string? applicationType)
+{
+    var type = applicationType?.Trim().ToUpperInvariant() ?? "";
 
+    if (type is "NEW")
+    {
+        return new object[]
+        {
+            new
+            {
+                key = "purchase-possess-permit",
+                title = "Permit to Purchase/Possess",
+                required = true
+            },
+            new
+            {
+                key = "amateur-roc",
+                title = "For Amateur Radio Operator Certificate (AT-ROC) holders:",
+                description = "Valid AT-ROC",
+                required = false
+            },
+            new
+            {
+                key = "source-of-equipment-proof",
+                title = "Copy of document indicating source of equipment:",
+                description = "(a) For locally-sourced equipment, Official Receipt or Sales Invoice from authorized Radio Dealer, OR\n(b) For imported equipment, Copy of Invoice from the supplier AND Copy of Permit to Import, OR\n(c) For equipment from licensed Amateur, Permit to Sell/Transfer AND Original AT-RSL of the Seller\nNote 1: Apply for Duplicate Copy if Original is lost/mutilated/destroyed or not available.",
+                required = true
+            },
+            new
+            {
+                key = "id-picture",
+                title = "Please provide a clear 1x1 ID picture taken within the last six (6) months.",
+                required = true
+            }
+        };
+    }
+
+    if (type is "REN" or "RENEWAL")
+    {
+        return new object[]
+        {
+            new
+            {
+                key = "photocopy-of-at-rsl",
+                title = "Photocopy of AT-RSL",
+                required = true
+            },
+            new
+            {
+                key = "amateur-activities-proof",
+                title = "Proof of Amateur Activities",
+                required = true
+            },
+            new
+            {
+                key = "id-picture",
+                title = "Please provide a clear 1x1 ID picture taken within the last six (6) months.",
+                required = true
+            }
+        };
+    }
+
+    if (type is "MOD" or "MODIFICATION")
+    {
+        return new object[]
+        {
+            new
+            {
+                key = "id-picture",
+                title = "Please provide a clear 1x1 ID picture taken within the last six (6) months.",
+                required = true
+            }
+        };
+    }
+
+    if (type is "DUP" or "DUPLICATE")
+    {
+        return new object[]
+        {
+            new
+            {
+                key = "affidavit-of-loss",
+                title = "Affidavit of Loss or proof of lost/mutilated/destroyed license",
+                required = true
+            },
+            new
+            {
+                key = "id-picture",
+                title = "Please provide a clear 1x1 ID picture taken within the last six (6) months.",
+                required = true
+            }
+        };
+    }
+
+    if (type is "STORAGE")
+    {
+        return new object[]
+        {
+            new
+            {
+                key = "storage-request",
+                title = "Request or supporting document for storage",
+                required = true
+            },
+            new
+            {
+                key = "permit-to-possess",
+                title = "Permit to Purchase/Possess",
+                required = true
+            }
+        };
+    }
+
+    return Array.Empty<object>();
+}
 static async Task<int> GetNextPrefixNumberAsync(
     CosmosClient cosmosClient,
     string databaseName,
