@@ -1,8 +1,9 @@
 using CsvHelper;
 using CsvHelper.Configuration;
+using Microsoft.Azure.Cosmos;
 using System.Globalization;
 using System.Text.Json;
-using Microsoft.Azure.Cosmos;
+
 var filePath = args.Length > 0
     ? args[0]
     : "AMATEUR Query.csv";
@@ -12,6 +13,25 @@ if (!File.Exists(filePath))
     Console.WriteLine($"File not found: {filePath}");
     return;
 }
+
+var cosmosConnectionString = Environment.GetEnvironmentVariable("COSMOS_CONNECTION_STRING");
+var cosmosDatabaseName = Environment.GetEnvironmentVariable("COSMOS_DATABASE_NAME");
+var cosmosContainerName = Environment.GetEnvironmentVariable("COSMOS_CONTAINER_NAME");
+
+if (string.IsNullOrWhiteSpace(cosmosConnectionString) ||
+    string.IsNullOrWhiteSpace(cosmosDatabaseName) ||
+    string.IsNullOrWhiteSpace(cosmosContainerName))
+{
+    Console.WriteLine("Cosmos DB environment variables are missing.");
+    return;
+}
+
+using var cosmosClient = new CosmosClient(cosmosConnectionString);
+
+var applicationsContainer = cosmosClient.GetContainer(
+    cosmosDatabaseName,
+    cosmosContainerName
+);
 
 var config = new CsvConfiguration(CultureInfo.InvariantCulture)
 {
@@ -25,347 +45,402 @@ using var reader = new StreamReader(filePath);
 using var csv = new CsvReader(reader, config);
 
 var records = csv.GetRecords<AmateurRecord>().ToList();
+
 Console.WriteLine($"Total records extracted: {records.Count}");
+
 var folderPath = Path.GetDirectoryName(filePath) ?? "";
 var folderName = string.IsNullOrWhiteSpace(folderPath)
     ? "root"
     : new DirectoryInfo(folderPath).Name;
-var applications = records.Select(item => new
+
+var regionCode = folderName;
+var regionPrefix = "RO" + regionCode;
+
+var applicationItems = new List<(object App, string Id)>();
+
+foreach (var item in records)
 {
-    soaNumber = "",
-    id = Guid.NewGuid().ToString(),
-    _id = Guid.NewGuid().ToString(),
+    var id = Guid.NewGuid().ToString();
+    var applicantId = Guid.NewGuid().ToString();
+    var userId = Guid.NewGuid().ToString();
 
-    receiptGoogleSheetUrl = "",
-    googleSoaReport = (string?)null,
-    type = "",
-    documentFileUrl = (string?)null,
+    var soaSeries = await GetNextPrefixNumberAsync(
+        cosmosClient,
+        cosmosDatabaseName,
+        "SOA_REFERENCE",
+        regionPrefix,
+        0
+    );
 
-    isBulk = (bool?)null,
-    isBulkParent = (bool?)null,
-    isBulkChildren = (bool?)null,
-    appBulkId = (string?)null,
+    var opSeries = await GetNextPrefixNumberAsync(
+        cosmosClient,
+        cosmosDatabaseName,
+        "OP_REFERENCE",
+        regionPrefix,
+        0
+    );
 
-    applicant = new
+    var globalSeries = await GetNextPrefixNumberAsync(
+        cosmosClient,
+        cosmosDatabaseName,
+        "GLOBAL_REFERENCE",
+        regionCode,
+        1000
+    );
+
+    var soaNumberValue = GenerateSoaNumber(regionCode, soaSeries);
+    var opNumberValue = GenerateOpNumber(regionCode, opSeries);
+    var referenceNumberValue = GenerateReferenceNumber(regionCode, globalSeries);
+
+    var documentNumberValue = !string.IsNullOrWhiteSpace(item.LIC_PER_NO)
+        ? item.LIC_PER_NO
+        : GenerateDocumentNumber(regionCode, "AT", globalSeries);
+
+    var permitNumberValue = !string.IsNullOrWhiteSpace(item.LIC_PER_NO)
+        ? item.LIC_PER_NO
+        : GeneratePermitNumber(regionCode, "AT", globalSeries);
+
+    var app = new
     {
-        _id = Guid.NewGuid().ToString(),
-        type = (string?)null,
-        userId = Guid.NewGuid().ToString(),
-        userType = "Individual",
-        companyName = "",
-        applicantName = item.OWNER,
+        soaNumber = soaNumberValue,
+        id = id,
+        _id = id,
 
-        firstName = ExtractFirstName(item.OWNER),
-        lastName = ExtractLastName(item.OWNER),
-        middleName = "",
+        receiptGoogleSheetUrl = "",
+        googleSoaReport = (string?)null,
+        type = "",
+        documentFileUrl = (string?)null,
 
-        suffix = "",
-        nationality = "Filipino",
-        sex = "",
-        signature = "",
-        height = 0,
-        weight = 0,
+        isBulk = (bool?)null,
+        isBulkParent = (bool?)null,
+        isBulkChildren = (bool?)null,
+        appBulkId = (string?)null,
 
-        address = new
+        applicant = new
         {
-            street = "",
-            unit = "",
-            barangay = "",
-            city = item.TOWNCITY,
-            province = item.PROVINCE,
-            region = folderName,
-            zipCode = ""
-        },
+            _id = applicantId,
+            type = (string?)null,
+            userId = userId,
+            userType = "Individual",
+            companyName = "",
+            applicantName = item.OWNER,
 
-        contact = new
-        {
-            contactNumber = item.ContactNumber,
-            email = ""
-        },
-
-        dateOfBirth = (string?)null,
-        email = (string?)null,
-
-        education = new
-        {
-            schoolAttended = "",
-            courseTaken = "",
-            yearGraduated = ""
-        },
-
-        profilePicture = (string?)null
-    },
-
-    service = new
-    {
-        _id = "61c400d8ad8d7afe8ee5f617",
-        name = "Licenses in the Amateur Service",
-        serviceCode = "service-3",
-
-        applicationType = new
-        {
-            label = GetApplicationTypeLabel(item.ApplicationType),
-            elements = new[]
-            {
-                "Class A",
-                "Class B",
-                "Class C",
-                "Class D"
-            },
-            formCode = "ntc1-03-AT-RSL",
-            requirements = Array.Empty<object>(),
-            serviceCode = "AT-RSL",
-            sequenceCode = "AT",
-            element = $"Class {item.CLASS}"
-        },
-
-        applicationDetails = new
-        {
-            noOfYears = "1"
-        },
-
-        license = new
-        {
-            licenseNumber = item.LIC_PER_NO,
-            dateOfExpiry = item.EXPDATE
-        },
-
-        basic = new
-        {
-            userId = "",
-            lastName = ExtractLastName(item.OWNER),
             firstName = ExtractFirstName(item.OWNER),
+            lastName = ExtractLastName(item.OWNER),
             middleName = "",
+
             suffix = "",
-            dateOfBirth = new
-            {
-                year = "",
-                month = "",
-                day = ""
-            },
+            nationality = "Filipino",
             sex = "",
-            nationality = "Filipino"
-        },
+            signature = "",
+            height = 0,
+            weight = 0,
 
-        callSign = new
-        {
-            callSign = item.CALLSIGN
-        },
-
-        exam = new
-        {
-            exam = "",
-            examDate = "",
-            rating = ""
-        },
-
-        particulars = new[]
-        {
-            new
+            address = new
             {
-                equipment = new
+                street = "",
+                unit = "",
+                barangay = "",
+                city = item.TOWNCITY,
+                province = item.PROVINCE,
+                region = regionCode,
+                zipCode = ""
+            },
+
+            contact = new
+            {
+                contactNumber = item.ContactNumber,
+                email = ""
+            },
+
+            dateOfBirth = (string?)null,
+            email = (string?)null,
+
+            education = new
+            {
+                schoolAttended = "",
+                courseTaken = "",
+                yearGraduated = ""
+            },
+
+            profilePicture = (string?)null
+        },
+
+        service = new
+        {
+            _id = "61c400d8ad8d7afe8ee5f617",
+            name = "Licenses in the Amateur Service",
+            serviceCode = "service-3",
+
+            applicationType = new
+            {
+                label = GetApplicationTypeLabel(item.ApplicationType),
+                elements = new[]
                 {
-                    makeTypeModel = $"{item.MAKE} {item.TYPE}".Trim()
+                    "Class A",
+                    "Class B",
+                    "Class C",
+                    "Class D"
                 },
-                equipments = new[]
+                formCode = "ntc1-03-AT-RSL",
+                requirements = Array.Empty<object>(),
+                serviceCode = "AT-RSL",
+                sequenceCode = "AT",
+                element = $"Class {item.CLASS}"
+            },
+
+            applicationDetails = new
+            {
+                noOfYears = "1"
+            },
+
+            license = new
+            {
+                licenseNumber = item.LIC_PER_NO,
+                dateOfExpiry = item.EXPDATE
+            },
+
+            basic = new
+            {
+                userId = userId,
+                lastName = ExtractLastName(item.OWNER),
+                firstName = ExtractFirstName(item.OWNER),
+                middleName = "",
+                suffix = "",
+                dateOfBirth = new
                 {
-                    new
+                    year = "",
+                    month = "",
+                    day = ""
+                },
+                sex = "",
+                nationality = "Filipino"
+            },
+
+            callSign = new
+            {
+                callSign = item.CALLSIGN
+            },
+
+            exam = new
+            {
+                exam = "",
+                examDate = "",
+                rating = ""
+            },
+
+            particulars = new[]
+            {
+                new
+                {
+                    equipment = new
                     {
-                        serialNumber = item.SERIAL,
-                        frequencyRange = item.FrequencyRange,
-                        powerKw = item.PowerKw,
-                        classOfStation = item.ClassOfStation
+                        makeTypeModel = $"{item.MAKE} {item.TYPE}".Trim()
+                    },
+                    equipments = new[]
+                    {
+                        new
+                        {
+                            serialNumber = item.SERIAL,
+                            frequencyRange = item.FrequencyRange,
+                            powerKw = item.PowerKw,
+                            classOfStation = item.ClassOfStation
+                        }
                     }
                 }
             }
-        }
-    },
+        },
 
-    serviceName = "licenses in the amateur service",
-    applicationProcess = "",
-    applicationTypeLabel = GetApplicationTypeLabel(item.ApplicationType).ToLower(),
-    region = new
-    {
-        _id = (string?)null,
-        address = "",
-        supportEmail = "edge@gov.ph",
-        label = "Region " + folderName,
-        value = folderName,
-        code = folderName
-    },
-    status = "Approved",
-    paymentStatus = "Paid",
-    paymentMethod = "cash",
-    amnesty = (string?)null,
+        serviceName = "licenses in the amateur service",
+        applicationProcess = "",
+        applicationTypeLabel = GetApplicationTypeLabel(item.ApplicationType).ToLower(),
 
-    auditTrail = new[]
-    {
-        new
+        region = new
         {
-            Date = DateTime.UtcNow.ToString("O"),
-            From = "",
-            To = item.ORNumber,
-            Reason = "",
-            By = ""
-        }
-    },
+            _id = (string?)null,
+            address = "",
+            supportEmail = "edge@gov.ph",
+            label = "Region " + regionCode,
+            value = regionCode,
+            code = regionCode
+        },
 
-    totalFee = ParseDecimal(item.AMOUNT),
-    amnestyTotalFee = (decimal?)null,
-    assignedPersonnel = (string?)null,
-    isPinned = false,
+        status = "Approved",
+        paymentStatus = "Paid",
+        paymentMethod = "cash",
+        amnesty = (string?)null,
 
-    approvalHistory = Array.Empty<object>(),
-    paymentHistory = Array.Empty<object>(),
-
-    soa = new[]
-    {
-        new
+        auditTrail = new[]
         {
-            id = "5",
-            item = "License Fee",
-            amount = ParseDecimal(item.AMOUNT),
-            validity = 1,
-            equipment = 0,
-            channel = 0,
-            fee = ParseDecimal(item.AMOUNT),
-            percent = 0,
-            type = (string?)null,
-            code = "Validity = 1 Year(s)",
-            description = "4-02-01-060",
-            applicationName = "",
-            Section = "For Licenses"
-        }
-    },
+            new
+            {
+                Date = DateTime.UtcNow.ToString("O"),
+                From = "",
+                To = item.ORNumber,
+                Reason = "",
+                By = ""
+            }
+        },
 
-    soaHistory = (string?)null,
-    exam = (string?)null,
+        totalFee = ParseDecimal(item.AMOUNT),
+        amnestyTotalFee = (decimal?)null,
+        assignedPersonnel = (string?)null,
+        isPinned = false,
 
-    officialReceipt = new
-    {
-        ORNumber = item.ORNumber,
-        pdf = "",
-        landscapePdf = "",
-        bankName = "",
-        payor = item.OWNER,
-        checkNumber = "",
-        checkDate = "",
-        ORBy = (object?)null,
-        createdAt = DateTime.UtcNow.ToString("O")
-    },
+        approvalHistory = Array.Empty<object>(),
+        paymentHistory = Array.Empty<object>(),
 
-    orderOfPayment = new
-    {
-        pdf = "",
-        fileUrl = "",
-        OrderOfPaymentBy = (object?)null,
+        soa = new[]
+        {
+            new
+            {
+                id = "5",
+                item = "License Fee",
+                amount = ParseDecimal(item.AMOUNT),
+                validity = 1,
+                equipment = 0,
+                channel = 0,
+                fee = ParseDecimal(item.AMOUNT),
+                percent = 0,
+                type = (string?)null,
+                code = "Validity = 1 Year(s)",
+                description = "4-02-01-060",
+                applicationName = "",
+                Section = "For Licenses"
+            }
+        },
+
+        soaHistory = (string?)null,
+        exam = (string?)null,
+
+        officialReceipt = new
+        {
+            ORNumber = item.ORNumber,
+            pdf = "",
+            landscapePdf = "",
+            bankName = "",
+            payor = item.OWNER,
+            checkNumber = "",
+            checkDate = "",
+            ORBy = (object?)null,
+            createdAt = DateTime.UtcNow.ToString("O")
+        },
+
+        orderOfPayment = new
+        {
+            pdf = "",
+            fileUrl = "",
+            OrderOfPaymentBy = (object?)null,
+            createdAt = DateTime.UtcNow.ToString("O"),
+            Number = opNumberValue
+        },
+
+        Make = item.MAKE,
+
+        schedule = new
+        {
+            id = (string?)null,
+            venue = (string?)null,
+            region = (string?)null,
+            slots = 0,
+            seatNumber = (string?)null,
+            dateStart = (string?)null,
+            dateEnd = (string?)null,
+            applicationStartDate = (string?)null,
+            applicationEndDate = (string?)null
+        },
+
+        proofOfPayment = Array.Empty<object>(),
+
+        personnelIds = Array.Empty<string>(),
+        PersonnelNames = Array.Empty<string>(),
+
+        document = "",
+        tempDocument = "",
+        documentNumber = documentNumberValue,
+        QRCode = "",
+
+        note = "",
+
+        dateOfExpiry = item.EXPDATE,
+        validUntil = item.EXPDATE,
+        dueDate = (string?)null,
+
         createdAt = DateTime.UtcNow.ToString("O"),
-        Number = ""
-    },
+        soaDocument = (string?)null,
+        updatedAt = DateTime.UtcNow.ToString("O"),
 
-    Make = item.MAKE,
+        dateOfBirth = (string?)null,
+        validity = item.EFFDATE,
+        notifyExpiry = (string?)null,
 
-    schedule = new
-    {
-        id = (string?)null,
-        venue = (string?)null,
-        region = (string?)null,
-        slots = 0,
-        seatNumber = (string?)null,
-        dateStart = (string?)null,
-        dateEnd = (string?)null,
-        applicationStartDate = (string?)null,
-        applicationEndDate = (string?)null
-    },
+        renew = new
+        {
+            forRenewal = false,
+            renewed = false,
+            renewedFrom = (string?)null,
+            applicationType = (string?)null
+        },
 
-    proofOfPayment = Array.Empty<object>(),
+        isModified = false,
+        isEndorsed = false,
 
-    personnelIds = Array.Empty<string>(),
-    PersonnelNames = Array.Empty<string>(),
+        referenceNumber = referenceNumberValue,
+        permitNumber = permitNumberValue,
 
-    document = "",
-    tempDocument = "",
-    documentNumber = item.LIC_PER_NO,
-    QRCode = "",
+        soaReport = (string?)null,
+        soaReportPdf = "",
+        formDocument = (string?)null,
+        reason = Array.Empty<object>(),
+        accountableForm = "",
 
-    note = "",
+        receiptVoidRequest = (string?)null,
+        receiptVoidHistory = Array.Empty<object>(),
+        hasPendingReceiptVoidRequest = false,
+        latestReceiptVoidStatus = (string?)null,
+        latestReceiptVoidUpdatedAt = (string?)null,
 
-    dateOfExpiry = item.EXPDATE,
-    validUntil = item.EXPDATE,
-    dueDate = (string?)null,
+        version = "1",
+        environment = "1",
 
-    createdAt = DateTime.UtcNow.ToString("O"),
-    soaDocument = (string?)null,
-    updatedAt = DateTime.UtcNow.ToString("O"),
+        csvSource = new
+        {
+            owner = item.OWNER,
+            classType = item.CLASS,
+            nature = item.NATURE,
+            applicationType = item.ApplicationType,
+            serial = item.SERIAL,
+            licensePermitNumber = item.LIC_PER_NO,
+            make = item.MAKE,
+            type = item.TYPE,
+            callSign = item.CALLSIGN,
+            orNumber = item.ORNumber,
+            townCity = item.TOWNCITY,
+            province = item.PROVINCE,
+            stationLocation = item.STNLOC,
+            datePaid = item.DATEPAID,
+            effectiveDate = item.EFFDATE,
+            expiryDate = item.EXPDATE,
+            dateIssued = item.DATEISS,
+            amount = item.AMOUNT,
+            contactNumber = item.ContactNumber,
+            longitude = item.LONGITUDE,
+            latitude = item.LATITUDE,
+            classOfStation = item.ClassOfStation,
+            powerKw = item.PowerKw,
+            frequencyRange = item.FrequencyRange
+        }
+    };
 
-    dateOfBirth = (string?)null,
-    validity = item.EFFDATE,
-    notifyExpiry = (string?)null,
+    applicationItems.Add((app, id));
+}
 
-    renew = new
-    {
-        forRenewal = false,
-        renewed = false,
-        renewedFrom = (string?)null,
-        applicationType = (string?)null
-    },
-
-    isModified = false,
-    isEndorsed = false,
-
-    referenceNumber = "",
-    permitNumber = item.LIC_PER_NO,
-
-    soaReport = (string?)null,
-    soaReportPdf = "",
-    formDocument = (string?)null,
-    reason = Array.Empty<object>(),
-    accountableForm = "",
-
-    receiptVoidRequest = (string?)null,
-    receiptVoidHistory = Array.Empty<object>(),
-    hasPendingReceiptVoidRequest = false,
-    latestReceiptVoidStatus = (string?)null,
-    latestReceiptVoidUpdatedAt = (string?)null,
-
-    version = "1",
-    environment = "1",
-
-    csvSource = new
-    {
-        owner = item.OWNER,
-        classType = item.CLASS,
-        nature = item.NATURE,
-        applicationType = item.ApplicationType,
-        serial = item.SERIAL,
-        licensePermitNumber = item.LIC_PER_NO,
-        make = item.MAKE,
-        type = item.TYPE,
-        callSign = item.CALLSIGN,
-        orNumber = item.ORNumber,
-        townCity = item.TOWNCITY,
-        province = item.PROVINCE,
-        stationLocation = item.STNLOC,
-        datePaid = item.DATEPAID,
-        effectiveDate = item.EFFDATE,
-        expiryDate = item.EXPDATE,
-        dateIssued = item.DATEISS,
-        amount = item.AMOUNT,
-        contactNumber = item.ContactNumber,
-        longitude = item.LONGITUDE,
-        latitude = item.LATITUDE,
-        classOfStation = item.ClassOfStation,
-        powerKw = item.PowerKw,
-        frequencyRange = item.FrequencyRange
-    }
-}).ToList();
+var applications = applicationItems.Select(x => x.App).ToList();
 
 var json = JsonSerializer.Serialize(applications, new JsonSerializerOptions
 {
     WriteIndented = true
 });
-
-
 
 Directory.CreateDirectory("output");
 
@@ -385,43 +460,92 @@ File.WriteAllText(outputFileName, json);
 
 Console.WriteLine($"JSON created: {outputFileName}");
 
-var cosmosConnectionString = Environment.GetEnvironmentVariable("COSMOS_CONNECTION_STRING");
-var cosmosDatabaseName = Environment.GetEnvironmentVariable("COSMOS_DATABASE_NAME");
-var cosmosContainerName = Environment.GetEnvironmentVariable("COSMOS_CONTAINER_NAME");
-
-if (string.IsNullOrWhiteSpace(cosmosConnectionString) ||
-    string.IsNullOrWhiteSpace(cosmosDatabaseName) ||
-    string.IsNullOrWhiteSpace(cosmosContainerName))
+foreach (var item in applicationItems)
 {
-    Console.WriteLine("Cosmos DB environment variables are missing. JSON was created but not uploaded to Cosmos DB.");
-    return;
-}
-
-using var cosmosClient = new CosmosClient(cosmosConnectionString);
-
-var databaseResponse = await cosmosClient.CreateDatabaseIfNotExistsAsync(cosmosDatabaseName);
-
-var containerResponse = await databaseResponse.Database.CreateContainerIfNotExistsAsync(
-    id: cosmosContainerName,
-    partitionKeyPath: "/id"
-);
-
-var container = cosmosClient.GetContainer(
-    cosmosDatabaseName,
-    cosmosContainerName
-);
-
-foreach (var app in applications)
-{
-    await container.UpsertItemAsync(
-        app,
-        new PartitionKey(app.id)
+    await applicationsContainer.UpsertItemAsync(
+        item.App,
+        new PartitionKey(item.Id)
     );
 
-    Console.WriteLine($"Saved to Cosmos DB Applications container: {app.id}");
+    Console.WriteLine($"Saved to Cosmos DB Applications container: {item.Id}");
 }
 
-Console.WriteLine($"Saved {applications.Count} records to Cosmos DB.");
+Console.WriteLine($"Saved {applicationItems.Count} records to Cosmos DB.");
+
+static async Task<int> GetNextPrefixNumberAsync(
+    CosmosClient cosmosClient,
+    string databaseName,
+    string prefixName,
+    string regionPrefix,
+    int initialLastNumber)
+{
+    var prefixContainer = cosmosClient.GetContainer(databaseName, "DocumentPrefixes");
+
+    var query = new QueryDefinition(
+        "SELECT TOP 1 * FROM c WHERE c.Prefix = @prefix AND c.RegionPrefix = @regionPrefix"
+    )
+    .WithParameter("@prefix", prefixName)
+    .WithParameter("@regionPrefix", regionPrefix);
+
+    var iterator = prefixContainer.GetItemQueryIterator<DocumentPrefixRecord>(query);
+
+    DocumentPrefixRecord? prefixRecord = null;
+
+    while (iterator.HasMoreResults)
+    {
+        var response = await iterator.ReadNextAsync();
+        prefixRecord = response.FirstOrDefault();
+
+        if (prefixRecord != null)
+            break;
+    }
+
+    var now = DateTime.UtcNow;
+
+    if (prefixRecord == null)
+    {
+        prefixRecord = new DocumentPrefixRecord
+        {
+            id = Guid.NewGuid().ToString(),
+            _id = "",
+            Prefix = prefixName,
+            LastNumber = initialLastNumber,
+            RegionPrefix = regionPrefix,
+            LastMonth = now.Month,
+            LastYear = now.Year,
+            Suffix = "",
+            LastUpdated = now
+        };
+    }
+
+    if (prefixRecord.LastYear == 0)
+    {
+        prefixRecord.LastYear = now.Year;
+    }
+
+    if (prefixRecord.LastYear != now.Year)
+    {
+        prefixRecord.LastNumber = initialLastNumber;
+        prefixRecord.LastYear = now.Year;
+        prefixRecord.LastMonth = now.Month;
+    }
+
+    prefixRecord.LastNumber += 1;
+    prefixRecord.LastUpdated = now;
+
+    if (string.IsNullOrWhiteSpace(prefixRecord._id))
+    {
+        prefixRecord._id = prefixRecord.id;
+    }
+
+    await prefixContainer.UpsertItemAsync(
+        prefixRecord,
+        new PartitionKey(prefixRecord.id)
+    );
+
+    return prefixRecord.LastNumber;
+}
+
 static string GetApplicationTypeLabel(string? value)
 {
     if (string.IsNullOrWhiteSpace(value))
@@ -449,7 +573,12 @@ static decimal ParseDecimal(string? value)
 
     value = value.Replace(",", "").Trim();
 
-    return decimal.TryParse(value, out var result)
+    return decimal.TryParse(
+        value,
+        NumberStyles.Any,
+        CultureInfo.InvariantCulture,
+        out var result
+    )
         ? result
         : 0;
 }
@@ -475,4 +604,93 @@ static string ExtractLastName(string? fullName)
     var parts = fullName.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
 
     return parts.LastOrDefault() ?? "";
+}
+
+static string GenerateSoaNumber(string regionCode, int seriesNumber)
+{
+    var now = DateTime.UtcNow;
+    var year = now.Year.ToString();
+    var month = now.Month.ToString("D2");
+
+    var prefix = regionCode switch
+    {
+        "XIII" => "70",
+        "IV-A" => "43A RO",
+        "XIV" => "43A RO",
+        _ => "61"
+    };
+
+    return $"{prefix}-{year}-{month}-{seriesNumber:D4}";
+}
+
+static string GenerateOpNumber(string regionCode, int seriesNumber)
+{
+    var now = DateTime.UtcNow;
+    var year = now.Year.ToString();
+    var month = now.Month.ToString("D2");
+
+    var prefix = regionCode switch
+    {
+        "XIII" => "71",
+        "IV-A" => "",
+        _ => "61"
+    };
+
+    return string.IsNullOrWhiteSpace(prefix)
+        ? $"{year}-{month}-{seriesNumber:D4}"
+        : $"{prefix}-{year}-{month}-{seriesNumber:D4}";
+}
+
+static string GenerateReferenceNumber(string regionCode, int globalSeriesNumber)
+{
+    var now = DateTime.UtcNow;
+    var year = now.Year.ToString();
+    var month = now.Month.ToString();
+
+    var prefix = regionCode switch
+    {
+        "XIII" => "70",
+        "IV-A" => "43A",
+        _ => "61"
+    };
+
+    var random3 = Math.Abs((int)(DateTime.UtcNow.Ticks % 1000));
+
+    return $"{prefix}-{month}-{year}-{globalSeriesNumber}-{random3:D3}";
+}
+
+static string GenerateDocumentNumber(string regionCode, string sequenceCode, int seriesNumber)
+{
+    var year = DateTime.UtcNow.Year.ToString();
+    var regionPrefix = "RO" + regionCode;
+    var number = seriesNumber.ToString("D5");
+
+    return $"{sequenceCode}-{regionPrefix}-{number}-{year}";
+}
+
+static string GeneratePermitNumber(string regionCode, string sequenceCode, int seriesNumber)
+{
+    var yy = DateTime.UtcNow.ToString("yy");
+    var regionPrefix = "RO" + regionCode;
+    var number = seriesNumber.ToString("D5");
+
+    return $"{sequenceCode}-{regionPrefix}-{number}-{yy}";
+}
+
+public class DocumentPrefixRecord
+{
+    public string id { get; set; } = Guid.NewGuid().ToString();
+    public string? _id { get; set; }
+
+    public string? Prefix { get; set; }
+    public int LastNumber { get; set; }
+    public string? RegionPrefix { get; set; }
+    public int LastMonth { get; set; }
+    public int LastYear { get; set; }
+    public string? Suffix { get; set; }
+    public string? RegionCode { get; set; }
+    public string? ApplicationId { get; set; }
+    public string? Label { get; set; }
+    public bool IsUsed { get; set; }
+    public DateTime LastUpdated { get; set; }
 }
