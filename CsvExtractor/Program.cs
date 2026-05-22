@@ -235,7 +235,7 @@ foreach (var item in records)
                 {
                     equipment = new
                     {
-                        makeTypeModel = $"{item.MAKE} {item.TYPE}".Trim()
+                        makeTypeModel = $"{item.MAKE}/{item.TYPE}".Trim()
                     },
                     equipments = new[]
                     {
@@ -333,10 +333,7 @@ foreach (var item in records)
             OrderOfPaymentBy = (object?)null,
             createdAt = DateTime.UtcNow.ToString("O"),
             Number = opNumberValue
-        },
-
-        Make = item.MAKE,
-
+        }, 
         schedule = new
         {
             id = (string?)null,
@@ -401,35 +398,7 @@ foreach (var item in records)
         latestReceiptVoidUpdatedAt = (string?)null,
 
         version = "1",
-        environment = "1",
-
-        csvSource = new
-        {
-            owner = item.OWNER,
-            classType = item.CLASS,
-            nature = item.NATURE,
-            applicationType = item.ApplicationType,
-            serial = item.SERIAL,
-            licensePermitNumber = item.LIC_PER_NO,
-            make = item.MAKE,
-            type = item.TYPE,
-            callSign = item.CALLSIGN,
-            orNumber = item.ORNumber,
-            townCity = item.TOWNCITY,
-            province = item.PROVINCE,
-            stationLocation = item.STNLOC,
-            datePaid = item.DATEPAID,
-            effectiveDate = item.EFFDATE,
-            expiryDate = item.EXPDATE,
-            dateIssued = item.DATEISS,
-            amount = item.AMOUNT,
-            contactNumber = item.ContactNumber,
-            longitude = item.LONGITUDE,
-            latitude = item.LATITUDE,
-            classOfStation = item.ClassOfStation,
-            powerKw = item.PowerKw,
-            frequencyRange = item.FrequencyRange
-        }
+        environment = "1", 
     };
 
     applicationItems.Add((app, id));
